@@ -1,9 +1,11 @@
 import os
 import logging
+from pathlib import Path
 from dotenv import load_dotenv
 
-# 加载 .env 配置文件
-load_dotenv()
+# 智能加载根目录下的 .env 配置文件 (无论在何处运行 python)
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(dotenv_path=ROOT_DIR / ".env")
 
 class Settings:
     """企业级集中式配置类 - Aegis AI 证券投研终端"""

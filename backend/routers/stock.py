@@ -46,6 +46,8 @@ async def suggest_stock(key: str = Query(..., min_length=1)):
                             "code": parts[3].lower(),
                             "short_code": parts[2]
                         })
+                # 智能排序优化：优先把代表 A 股 (sh 或 sz 开头) 的股票排到前面！
+                results.sort(key=lambda x: 0 if x["code"].startswith(("sh", "sz")) else 1)
             return {"success": True, "data": results[:8]}
     except Exception as e:
         logger.error(f"Suggest 接口网络联想发生错误: {e}")
@@ -54,7 +56,7 @@ async def suggest_stock(key: str = Query(..., min_length=1)):
 
 # 2. 个股行情盘面舆情抓取 API
 @router.get("/stock")
-async def get_stock_data(code: str = Query(..., regex=r"^(sh|sz)\d{6}$")):
+async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9]+$")):
     """
     一键抓取个股报盘与关联的 5 条新闻
     """
