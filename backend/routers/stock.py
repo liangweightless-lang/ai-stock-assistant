@@ -79,10 +79,16 @@ async def get_stock_data(code: str = Query(..., pattern=r"^[a-zA-Z0-9_]+$")):
     quote_data = {}
 
     def _to_qq_code(code: str) -> str:
-        """将 sz/sh/hk 代码转为腾讯财经格式"""
+        """将 sz/sh/hk/gb 代码转为腾讯财经格式"""
         c = code.lower()
         if c.startswith(("sz", "sh", "hk")):
             return c
+        if c.startswith("gb_"):
+            return f"us{c[3:].upper()}"
+        if c.isalpha():
+            return f"us{c.upper()}"
+        if c.isdigit() and len(c) == 5:
+            return f"hk{c}"
         return f"sz{c}"
 
     def _fetch_quote_sync(code: str):
@@ -102,26 +108,34 @@ async def get_stock_data(code: str = Query(..., pattern=r"^[a-zA-Z0-9_]+$")):
         m = _re.search(r'"([^"]+)"', raw)
         if m:
             parts = m.group(1).split("~")
-            # 字段: [1]名 [2]代码 [3]现价 [4]昨收 [5]今开 [6]成交量(手) [30]涨跌 [31]涨跌% [32]最高 [33]最低
+            # 字段: [1]名 [2]代码 [3]现价 [4]昨收 [5]今开 [6]成交量(手/股) [30]时间 [31]涨跌 [32]涨跌% [33]最高 [34]最低
             if len(parts) > 33:
                 name      = parts[1]
                 current   = float(parts[3]) if parts[3] else 0
                 prev_close= float(parts[4]) if parts[4] else 0
                 open_p    = float(parts[5]) if parts[5] else 0
-                volume    = int(parts[6])   if parts[6] else 0
+                # 使用 float 转换后再强转 int，完美兼容港股/美股带小数点的成交量
+                volume    = int(float(parts[6])) if parts[6] else 0
                 change_val= float(parts[31]) if parts[31] else 0
                 change_pct= float(parts[32]) if parts[32] else 0
                 high_p    = float(parts[33]) if parts[33] else 0
                 low_p     = float(parts[34]) if parts[34] else 0
                 import datetime
-                time_str  = parts[30]  # 格式: 20260520161457
-                try:
-                    time_str = datetime.datetime.strptime(time_str, "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M")
-                except Exception:
-                    pass
+                time_str  = parts[30]
+                # 智能自适应 A股/港股/美股 等多种时间格式解析
+                parsed_time = "暂无数据"
+                for fmt in ["%Y%m%d%H%M%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"]:
+                    try:
+                        parsed_time = datetime.datetime.strptime(time_str, fmt).strftime("%Y-%m-%d %H:%M")
+                        break
+                    except Exception:
+                        pass
+                if parsed_time == "暂无数据":
+                    parsed_time = time_str
+
                 d = {"ok": True, "name": name, "current": current, "prev_close": prev_close,
                      "open": open_p, "volume": volume, "change_val": change_val,
-                     "change_pct": change_pct, "high": high_p, "low": low_p, "time": time_str}
+                     "change_pct": change_pct, "high": high_p, "low": low_p, "time": parsed_time}
             else:
                 d = {}
         else:
