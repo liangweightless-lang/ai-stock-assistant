@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  # 1. 智能证券研报后端微服务
+  stock-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock-backend
+    restart: always
+    ports:
+      - "9091:9091"
+    # 自动同步宿主机密钥配置
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 2. 奢华暗黑玻璃拟态前端控制台
+  stock-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stock-frontend
+    restart: always
+    ports:
+      - "5174:80"  # 将容器内 Nginx 服务的 80 端口映射到主机的 5174 端口
+    depends_on:
+      - stock-backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
