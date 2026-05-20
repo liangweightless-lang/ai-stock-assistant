@@ -44,12 +44,22 @@ fi
 # 3. 极速本地开发模式运行 (前后端解耦联调)
 echo "⚡ 正在以本地前后端解耦开发模式拉起服务..."
 
-# 3.1 补全后端依赖
+# 3.1 补全后端依赖与虚拟环境激活
 echo "📦 正在校验后端 Python 依赖库环境..."
+if [ -d "backend/.venv" ]; then
+    source backend/.venv/bin/activate
+fi
+
 python3 -c "import fastapi, uvicorn, httpx, dotenv, dashscope" 2>/dev/null
 if [ $? -ne 0 ]; then
     if command -v uv &> /dev/null; then
-        echo "⚡ 发现 uv 极速包管理器，正在使用 uv 极速安装后端依赖..."
+        echo "⚡ 发现 uv 极速包管理器..."
+        if [ ! -d "backend/.venv" ]; then
+            echo "🌱 正在为您自动极速创建独立虚拟环境 (backend/.venv)..."
+            cd backend && uv venv && cd ..
+            source backend/.venv/bin/activate
+        fi
+        echo "🚀 正在使用 uv 极速安装依赖库..."
         uv pip install -r backend/requirements.txt
     else
         echo "🛠 正在为您自动安装后端微服务依赖包..."
