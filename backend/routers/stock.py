@@ -70,7 +70,7 @@ async def suggest_stock(key: str = Query(..., min_length=1)):
 
 # 2. 个股行情盘面舆情抓取 API
 @router.get("/stock")
-async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
+async def get_stock_data(code: str = Query(..., pattern=r"^[a-zA-Z0-9_]+$")):
     """
     一键抓取个股报盘与关联的 5 条新闻 (支持 A股、港股、美股多态解析)
     """
@@ -172,7 +172,11 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
         news_url = f"https://search.sina.com.cn/api/search?c=news&q={encoded_name}&sort=1&page=1&num=6"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(news_url, headers=headers)
+                news_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "https://finance.sina.com.cn"
+                }
+                resp = await client.get(news_url, headers=news_headers)
                 data = resp.json()
                 for idx, item in enumerate(data.get("data", {}).get("list", [])[:5]):
                     title = re.sub(r'<[^>]+>', '', item.get("title", "")).strip()

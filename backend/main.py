@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -13,11 +14,18 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config.settings import settings, logger
 from routers.stock import router as stock_router
 
-# 1. 实例化主 FastAPI 服务
+# 1. 使用 lifespan 管理生命周期
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    check_environment()
+    yield
+
+# 2. 实例化主 FastAPI 服务
 app = FastAPI(
     title="Aegis AI Stock Assistant", 
     description="企业级证券投研 AI 助理微服务", 
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # 2. 注入全局 CORS 策略，彻底解除跨域阻碍 (企业级规范)
@@ -54,9 +62,7 @@ if os.path.exists(frontend_dist_dir):
 else:
     logger.info("ℹ️ 前端开发模式：暂未检测到生产环境 dist 前端包，请独立启动 Vite 开发服务。")
 
-@app.on_event("startup")
-async def startup_event():
-    check_environment()
+
 
 if __name__ == "__main__":
     host = settings.SERVER_HOST
