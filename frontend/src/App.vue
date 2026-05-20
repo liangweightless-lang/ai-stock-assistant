@@ -117,31 +117,84 @@
         <div class="update-timestamp">更新时间: {{ quoteData.time }}</div>
       </div>
 
-      <!-- 栏目二：深度智能研报面板 -->
+      <!-- 栏目二：深度智能研报面板与追问交互舱 -->
       <div class="glass-card report-card">
         <div class="card-header">
-          <h3 class="card-title">🧠 AI 智能深度研报</h3>
+          <div class="header-title-group">
+            <h3 class="card-title">🧠 AI 智能投研大脑</h3>
+            <span class="card-subtitle">支持多轮深度追问交互</span>
+          </div>
           <div class="generation-controls">
-            <button @click="generateAIReport" class="glow-btn" :disabled="isGenerating">
-              {{ isGenerating ? '⚡ 正在诊断分析...' : '⚡ 重新生成研报' }}
+            <button @click="generateAIReport" class="glow-btn" :disabled="isGenerating && !isFollowingUp">
+              {{ isGenerating && !isFollowingUp ? '⚡ 正在诊断分析...' : '⚡ 重塑初始研报' }}
             </button>
           </div>
         </div>
         
-        <div class="report-console">
+        <!-- 对话主体舱 -->
+        <div class="report-console chat-mode">
           <div class="console-scan-line"></div>
-          <div class="console-body">
-            <div v-if="isGenerating && !reportContent" class="report-loading-wrapper">
+          
+          <div ref="chatConsoleRef" class="console-body chat-scroll-container">
+            <div v-if="isGenerating && chatHistory.length === 0" class="report-loading-wrapper">
               <span class="loader-spinner"></span>
               <p>{{ loadingText }}</p>
             </div>
-            <!-- 大模型流式研报渲染框 -->
-            <div 
-              v-else 
-              class="report-markdown" 
-              v-html="formattedReport"
-            ></div>
+            
+            <div v-else class="chat-bubbles-list">
+              <div 
+                v-for="(msg, idx) in chatHistory" 
+                :key="idx" 
+                :class="['chat-bubble-row', msg.role]"
+              >
+                <!-- 头像区域 -->
+                <div class="chat-avatar">
+                  <span v-if="msg.role === 'assistant'" class="avatar-ai">🧠</span>
+                  <span v-else class="avatar-user">👤</span>
+                </div>
+                
+                <!-- 内容气泡 -->
+                <div class="chat-bubble-content">
+                  <div class="bubble-sender-name">
+                    {{ msg.role === 'assistant' ? 'Aegis AI 投研专家' : '分析师 (您)' }}
+                  </div>
+                  <div 
+                    class="bubble-text-body report-markdown" 
+                    v-html="formatMarkdownText(msg.content)"
+                  ></div>
+                </div>
+              </div>
+              
+              <!-- 正在追问加载占位符 -->
+              <div v-if="isGenerating && isFollowingUp && chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'user'" class="chat-bubble-row assistant streaming-pending">
+                <div class="chat-avatar"><span class="avatar-ai">🧠</span></div>
+                <div class="chat-bubble-content">
+                  <div class="bubble-sender-name">Aegis AI 投研专家</div>
+                  <div class="bubble-text-body loading-indicator-dots">
+                    <span>.</span><span>.</span><span>.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+        </div>
+
+        <!-- 追问控制面板 -->
+        <div v-if="chatHistory.length > 0" class="chat-input-panel">
+          <input 
+            type="text" 
+            v-model="followUpInput" 
+            @keydown.enter="sendFollowUp"
+            placeholder="针对该股进行深度追问 (如: 解释下今日盘面异动的核心原因 / 对手盘竞争情况)..."
+            :disabled="isGenerating"
+          >
+          <button 
+            @click="sendFollowUp" 
+            :disabled="isGenerating || !followUpInput.trim()" 
+            class="send-btn"
+          >
+            <span>发送追问</span>
+          </button>
         </div>
       </div>
 
@@ -206,19 +259,25 @@ const loadingText = ref('')
 const toastMessage = ref('')
 const toastVisible = ref(false)
 
+// 多轮追问交互舱响应式状态
+const chatHistory = ref<any[]>([])
+const followUpInput = ref('')
+const isFollowingUp = ref(false)
+const chatConsoleRef = ref<HTMLElement | null>(null)
+
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let debounceTimer: any = null
 let chartAnimationId: any = null
 
-// 2. 深度报告格式化计算
-const formattedReport = computed(() => {
-  if (!reportContent.value) {
-    return '<p style="color: var(--text-muted);">等待生成实时投研报告...</p>'
+// 2. 气泡富文本 Markdown 微引擎
+function formatMarkdownText(text: string) {
+  if (!text) {
+    return '<span class="typing-indicator">▋</span>';
   }
-  return reportContent.value
+  return text
     .replace(/\n/g, '<br>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-})
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+}
 
 // 3. 全局消息提示方法
 function showToast(msg: string, duration = 3000) {
@@ -336,8 +395,10 @@ async function loadStockDashboard(codeStr: string) {
 // 6. 流式生成 AI 分析研报 (SSE EventStream Reader)
 async function generateAIReport() {
   isGenerating.value = true;
+  isFollowingUp.value = false;
   loadingText.value = '正在连线通义千问大模型，进行深度投研诊断...';
   reportContent.value = '';
+  chatHistory.value = []; // 初始化清空历史
 
   const q = quoteData.value;
   const n = newsList.value;
@@ -369,6 +430,9 @@ async function generateAIReport() {
 
     if (!reader) return;
 
+    // 压入第一条 AI 流式气泡
+    chatHistory.value = [{ role: 'assistant', content: '' }];
+
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -381,14 +445,105 @@ async function generateAIReport() {
         if (line.startsWith('data: ')) {
           const chunk = line.slice(6);
           if (chunk === '[DONE]') break;
-          reportContent.value += chunk;
+          chatHistory.value[0].content += chunk;
+          reportContent.value = chatHistory.value[0].content;
         }
       }
     }
   } catch (err: any) {
     isGenerating.value = false;
-    reportContent.value = `❌ **研报解析失败**: ${err.message || '请确保后端 .env 中的 DASHSCOPE_API_KEY 已正确配置。'}`;
+    const errText = `❌ **研报解析失败**: ${err.message || '请确保后端 .env 中的 DASHSCOPE_API_KEY 已正确配置。'}`;
+    chatHistory.value = [{ role: 'assistant', content: errText }];
+    reportContent.value = errText;
   }
+}
+
+// 6.5 发送多轮追问
+async function sendFollowUp() {
+  const question = followUpInput.value.trim();
+  if (!question || isGenerating.value) return;
+
+  followUpInput.value = '';
+  isGenerating.value = true;
+  isFollowingUp.value = true;
+
+  // 压入用户提问气泡
+  chatHistory.value.push({ role: 'user', content: question });
+  scrollToChatBottom();
+
+  const q = quoteData.value;
+  const n = newsList.value;
+  
+  const price_info = `股票简称: ${q.name}, 最新价格: ${q.current}元, 今日开盘价: ${q.open}元, 最高价: ${q.high}元, 最低价: ${q.low}元, 涨跌幅: ${q.change_pct}`;
+  const news_context = n.map((item, idx) => `${idx+1}. ${item.title}`).join('\n');
+
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: q.name,
+        code: q.code,
+        price_info: price_info,
+        news_context: news_context || "无最新财经公告舆情",
+        question: question,
+        history: chatHistory.value.slice(0, -1) // 剔除刚才压入的最末一条提问
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('服务器 AI 追问失败');
+    }
+
+    isGenerating.value = false;
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    if (!reader) return;
+
+    // 压入新的 AI 回答气泡
+    chatHistory.value.push({ role: 'assistant', content: '' });
+    const lastIdx = chatHistory.value.length - 1;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const chunk = line.slice(6);
+          if (chunk === '[DONE]') break;
+          chatHistory.value[lastIdx].content += chunk;
+          scrollToChatBottom();
+        }
+      }
+    }
+  } catch (err: any) {
+    isGenerating.value = false;
+    chatHistory.value.push({
+      role: 'assistant',
+      content: `❌ **追问失败**: ${err.message || '网络连接超时或 API 密钥配置有误。'}`
+    });
+    scrollToChatBottom();
+  } finally {
+    isFollowingUp.value = false;
+  }
+}
+
+// 自动滚动到底部以追踪最新气泡
+function scrollToChatBottom() {
+  nextTick(() => {
+    const el = chatConsoleRef.value;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  });
 }
 
 // 7. Canvas 高阶股票行情波动曲线绘制
@@ -1096,6 +1251,196 @@ html, body {
   z-index: 1000;
   animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--text-main);
+}
+
+/* ==========================================
+   💬 CHAT ROOM & FOLLOW-UP INTERACTION STYLES
+   ========================================== */
+.header-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.card-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.report-console.chat-mode {
+  height: 400px; /* 固定高度，支持滚动 */
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1rem 1.5rem 1.5rem;
+}
+.chat-scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* 自定义滚动条 */
+.chat-scroll-container::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+.chat-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 210, 255, 0.25);
+}
+
+.chat-bubbles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.8rem;
+}
+.chat-bubble-row {
+  display: flex;
+  gap: 1.2rem;
+  animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.chat-bubble-row.user {
+  flex-direction: row-reverse;
+}
+.chat-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.chat-bubble-row.assistant .chat-avatar {
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.15), rgba(213, 0, 249, 0.15));
+  border: 1px solid rgba(0, 210, 255, 0.3);
+}
+.chat-bubble-row.user .chat-avatar {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.chat-bubble-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: 80%;
+}
+.chat-bubble-row.user .chat-bubble-content {
+  align-items: flex-end;
+}
+.bubble-sender-name {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-family: var(--font-heading);
+}
+.bubble-text-body {
+  padding: 1.1rem 1.4rem;
+  border-radius: 20px;
+  line-height: 1.8;
+  font-size: 0.98rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+.chat-bubble-row.assistant .bubble-text-body {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-top-left-radius: 4px;
+}
+.chat-bubble-row.user .bubble-text-body {
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.15), rgba(0, 210, 255, 0.03));
+  border: 1px solid rgba(0, 210, 255, 0.25);
+  color: var(--text-main);
+  border-top-right-radius: 4px;
+  text-align: left;
+}
+
+/* 追问控制面板 */
+.chat-input-panel {
+  display: flex;
+  gap: 1rem;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 0.6rem 0.8rem 0.6rem 1.4rem;
+  margin-top: 1.2rem;
+  align-items: center;
+  backdrop-filter: blur(12px);
+  transition: all 0.3s ease;
+}
+.chat-input-panel:focus-within {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 25px rgba(0, 210, 255, 0.2);
+}
+.chat-input-panel input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-main);
+  font-size: 0.98rem;
+  font-family: var(--font-body);
+}
+.chat-input-panel input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+.send-btn {
+  background: linear-gradient(95deg, var(--accent-blue), var(--accent-purple));
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  padding: 0.6rem 1.4rem;
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+.send-btn:hover:not(:disabled) {
+  box-shadow: 0 0 15px rgba(0, 210, 255, 0.45);
+  transform: translateY(-1px);
+}
+.send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.loading-indicator-dots span {
+  animation: blink 1.4s infinite both;
+  font-size: 1.8rem;
+  line-height: 0.5;
+  display: inline-block;
+  vertical-align: bottom;
+}
+.loading-indicator-dots span:nth-child(2) {
+  animation-delay: .2s;
+}
+.loading-indicator-dots span:nth-child(3) {
+  animation-delay: .4s;
+}
+@keyframes blink {
+  0% { opacity: .2; }
+  20% { opacity: 1; }
+  100% { opacity: .2; }
+}
+
+.typing-indicator {
+  color: var(--accent-blue);
+  animation: flash 0.8s infinite;
+}
+@keyframes flash {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 
 @keyframes pulse {
