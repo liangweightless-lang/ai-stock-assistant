@@ -48,8 +48,13 @@ echo "⚡ 正在以本地前后端解耦开发模式拉起服务..."
 echo "📦 正在校验后端 Python 依赖库环境..."
 python3 -c "import fastapi, uvicorn, httpx, dotenv, dashscope" 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "🛠 正在为您自动安装后端微服务依赖包..."
-    pip install -r backend/requirements.txt
+    if command -v uv &> /dev/null; then
+        echo "⚡ 发现 uv 极速包管理器，正在使用 uv 极速安装后端依赖..."
+        uv pip install -r backend/requirements.txt
+    else
+        echo "🛠 正在为您自动安装后端微服务依赖包..."
+        pip install -r backend/requirements.txt
+    fi
 fi
 
 # 3.2 补全前端 pnpm/npm 依赖
