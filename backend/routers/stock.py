@@ -179,24 +179,20 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
             "time": "暂无数据"
         }
 
-    # 抓取新闻头条
+    # 抓取新闻头条（使用新浪财经 JSON API，旧 SPA 页面已失效）
     news_list = []
     if "name" in quote_data and quote_data["name"] != "未知股票":
         encoded_name = urllib.parse.quote(quote_data["name"])
-        news_url = f"https://search.sina.com.cn/?q={encoded_name}&c=news&sort=time"
+        news_url = f"https://search.sina.com.cn/api/search?c=news&q={encoded_name}&sort=1&page=1&num=6"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(news_url, headers=headers)
-                text = resp.text
-                pattern = r'<h2><a href="([^"]+)"[^>]*>(.*?)</a>'
-                matches = re.findall(pattern, text)
-                for idx, (link, title) in enumerate(matches[:5]):
-                    clean_title = re.sub(r'<[^>]+>', '', title).strip()
-                    news_list.append({
-                        "id": idx + 1,
-                        "title": clean_title,
-                        "link": link
-                    })
+                data = resp.json()
+                for idx, item in enumerate(data.get("data", {}).get("list", [])[:5]):
+                    title = re.sub(r'<[^>]+>', '', item.get("title", "")).strip()
+                    link = item.get("url", "")
+                    if title and link:
+                        news_list.append({"id": idx + 1, "title": title, "link": link})
         except Exception as e:
             logger.error(f"金融舆情获取失败: {e}")
  

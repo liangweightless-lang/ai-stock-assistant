@@ -64,10 +64,11 @@ async def fetch_stock_quote(code: str) -> str:
 
 async def fetch_stock_news(keyword: str) -> list[dict]:
     """
-    从新浪财经搜索获取最新的个股新闻舆情
+    从新浪财经 JSON API 获取最新个股新闻舆情
+    （原 search.sina.com.cn 已升级为 SPA，静态爬取失效，改用其后端 JSON 接口）
     """
     encoded_key = urllib.parse.quote(keyword)
-    url = f"https://search.sina.com.cn/?q={encoded_key}&c=news&sort=time"
+    url = f"https://search.sina.com.cn/api/search?c=news&q={encoded_key}&sort=1&page=1&num=6"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://finance.sina.com.cn"
@@ -75,13 +76,13 @@ async def fetch_stock_news(keyword: str) -> list[dict]:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url, headers=headers)
-            text = resp.text
-            pattern = r'<h2><a href="([^"]+)"[^>]*>(.*?)</a>'
-            matches = re.findall(pattern, text)
+            data = resp.json()
             news_list = []
-            for link, title in matches[:4]:
-                clean_title = re.sub(r'<[^>]+>', '', title).strip()
-                news_list.append({"title": clean_title, "link": link})
+            for item in data.get("data", {}).get("list", [])[:5]:
+                title = re.sub(r'<[^>]+>', '', item.get("title", "")).strip()
+                link = item.get("url", "")
+                if title and link:
+                    news_list.append({"title": title, "link": link})
             return news_list
     except Exception as e:
         logger.error(f"金融头条舆情抓取异常: {e}")
