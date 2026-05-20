@@ -2,7 +2,7 @@ import asyncio
 from typing import AsyncGenerator
 import dashscope
 from providers.base import BaseLLMProvider
-from config.settings import logger
+from config.settings import settings, logger
 
 class QwenProvider(BaseLLMProvider):
     """通义千问大模型驱动实现"""
@@ -26,6 +26,7 @@ class QwenProvider(BaseLLMProvider):
             result_format='message',
             stream=True,
             incremental_output=True,
+            api_key=settings.DASHSCOPE_API_KEY,  # 显式传递密钥以防 SDK 隐式读取失败
         )
 
         for response in responses:
