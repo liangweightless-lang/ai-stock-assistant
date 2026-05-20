@@ -41,9 +41,19 @@ async def suggest_stock(key: str = Query(..., min_length=1)):
                         continue
                     parts = item.split(',')
                     if len(parts) >= 4:
+                        asset_type = parts[1]
+                        raw_code = parts[3].lower()
+                        # 智能前缀规整：针对港股和美股补充新浪所需要的行情前缀
+                        if asset_type == "31":
+                            final_code = f"hk{raw_code}"
+                        elif asset_type == "41":
+                            final_code = f"gb_{raw_code}"
+                        else:
+                            final_code = raw_code
+
                         results.append({
                             "name": parts[0],
-                            "code": parts[3].lower(),
+                            "code": final_code,
                             "short_code": parts[2]
                         })
                 # 智能排序优化：优先把代表 A 股 (sh 或 sz 开头) 的股票排到前面！
@@ -56,9 +66,9 @@ async def suggest_stock(key: str = Query(..., min_length=1)):
 
 # 2. 个股行情盘面舆情抓取 API
 @router.get("/stock")
-async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9]+$")):
+async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
     """
-    一键抓取个股报盘与关联的 5 条新闻
+    一键抓取个股报盘与关联的 5 条新闻 (支持 A股、港股、美股多态解析)
     """
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -75,13 +85,13 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9]+$")):
             match = re.search(r'"([^"]+)"', content)
             if match:
                 data = match.group(1).split(',')
-                if len(data) >= 30:
+                if code.startswith(("sh", "sz")) and len(data) >= 30:
+                    # 1. 经典 A 股解析器
                     open_p = float(data[1])
                     prev_close = float(data[2])
                     current = float(data[3])
                     change_val = current - prev_close if current > 0 else 0
                     change_pct = (change_val / prev_close) * 100 if prev_close > 0 else 0
-                    
                     quote_data = {
                         "name": data[0],
                         "code": code.upper(),
@@ -97,13 +107,77 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9]+$")):
                         "is_up": change_val >= 0,
                         "time": f"{data[30]} {data[31]}"
                     }
+                elif code.startswith("hk") and len(data) >= 15:
+                    # 2. 跨国港股解析器
+                    open_p = float(data[2])
+                    prev_close = float(data[3])
+                    current = float(data[6])
+                    change_val = float(data[7])
+                    change_pct = float(data[8])
+                    quote_data = {
+                        "name": data[1],
+                        "code": code.upper(),
+                        "open": f"{open_p:.2f}",
+                        "prev_close": f"{prev_close:.2f}",
+                        "current": f"{current:.2f}",
+                        "high": f"{float(data[4]):.2f}",
+                        "low": f"{float(data[5]):.2f}",
+                        "volume": f"{int(float(data[12])/100):,}",
+                        "turnover": f"{float(data[11])/10000:.2f}",
+                        "change_val": f"{change_val:+.2f}",
+                        "change_pct": f"{change_pct:+.2f}%",
+                        "is_up": change_val >= 0,
+                        "time": f"{data[17]} {data[18]}"
+                    }
+                elif code.startswith("gb_") and len(data) >= 27:
+                    # 3. 跨国美股解析器
+                    current = float(data[1])
+                    change_pct = float(data[2])
+                    open_p = float(data[5])
+                    high_p = float(data[6])
+                    low_p = float(data[7])
+                    volume = float(data[10])
+                    prev_close = float(data[26])
+                    change_val = current - prev_close
+                    quote_data = {
+                        "name": data[0],
+                        "code": code.upper(),
+                        "open": f"{open_p:.2f}",
+                        "prev_close": f"{prev_close:.2f}",
+                        "current": f"{current:.2f}",
+                        "high": f"{high_p:.2f}",
+                        "low": f"{low_p:.2f}",
+                        "volume": f"{int(volume):,}",
+                        "turnover": "暂无",
+                        "change_val": f"{change_val:+.2f}",
+                        "change_pct": f"{change_pct:+.2f}%",
+                        "is_up": change_val >= 0,
+                        "time": data[3]
+                    }
     except Exception as e:
         logger.error(f"实时行情接口异常: {e}")
-        quote_data = {"error": f"行情调取失败: {str(e)}"}
+ 
+    # 极佳的兜底保障机制，防范前端 JSON.stringify 抹除 undefined 从而导致 POST analyze 422 报错
+    if not quote_data or "error" in quote_data:
+        quote_data = {
+            "name": "未知股票",
+            "code": code.upper(),
+            "open": "0.00",
+            "prev_close": "0.00",
+            "current": "0.00",
+            "high": "0.00",
+            "low": "0.00",
+            "volume": "0",
+            "turnover": "0.00",
+            "change_val": "+0.00",
+            "change_pct": "+0.00%",
+            "is_up": True,
+            "time": "暂无数据"
+        }
 
     # 抓取新闻头条
     news_list = []
-    if "name" in quote_data:
+    if "name" in quote_data and quote_data["name"] != "未知股票":
         encoded_name = urllib.parse.quote(quote_data["name"])
         news_url = f"https://search.sina.com.cn/?q={encoded_name}&c=news&sort=time"
         try:
@@ -121,7 +195,7 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9]+$")):
                     })
         except Exception as e:
             logger.error(f"金融舆情获取失败: {e}")
-
+ 
     return {
         "success": True,
         "quote": quote_data,
