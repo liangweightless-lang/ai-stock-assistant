@@ -10,11 +10,15 @@ from providers.factory import LLMFactory
 
 router = APIRouter(prefix="/api")
 
+from typing import List, Optional, Dict
+
 class AnalysisRequest(BaseModel):
     name: str
     code: str
     price_info: str
     news_context: str
+    question: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = None
 
 # 1. 智能股票自动联想 API
 @router.get("/suggest")
@@ -207,11 +211,12 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
 @router.post("/analyze")
 async def analyze_stock(req: AnalysisRequest):
     """
-    触发 AI 深度智能投研分析
+    触发 AI 深度智能投研分析 & 支持多轮深度追问交互
     """
     provider = LLMFactory.get_provider()
     
-    prompt = (
+    # 基础投研研报 Prompt
+    base_report_prompt = (
         f"你是一个资深的华尔街证券分析师。请针对以下实时获取的股票行情和舆情进行深度研报总结。\n\n"
         f"📊 【股票行情速递】:\n{req.price_info}\n\n"
         f"📰 【最新财经资讯】:\n{req.news_context}\n\n"
@@ -221,10 +226,40 @@ async def analyze_stock(req: AnalysisRequest):
         f"3. **投资决策与风险提示**"
     )
 
-    async def event_generator():
-        messages = [{'role': 'user', 'content': prompt}]
-        stop_event = asyncio.Event()
+    messages = []
+    
+    # 判断是否有历史对话，进行多轮追问上下文组装
+    if req.history and len(req.history) > 0:
+        # 首先注入带有盘口背景的首轮 Prompt 充当系统设定
+        messages.append({'role': 'user', 'content': base_report_prompt})
+        # 依次读入历史对话气泡，排除可能重复的第一条
+        for msg in req.history:
+            role = 'user' if msg.get('role') == 'user' else 'assistant'
+            # 略过我们手动硬编码进 messages 的首轮 base prompt 结果（第一条 assistant）
+            if len(messages) == 1 and role == 'assistant':
+                messages.append({'role': 'assistant', 'content': msg.get('content', '')})
+            else:
+                messages.append({'role': role, 'content': msg.get('content', '')})
         
+        # 追入最新提问
+        if req.question:
+            messages.append({'role': 'user', 'content': req.question})
+    else:
+        # 首次生成，或者直接提问
+        if req.question:
+            chat_prompt = (
+                f"你是一个资深的华尔街证券分析师。当前分析的股票背景信息如下：\n"
+                f"📊 【股票最新行情】:\n{req.price_info}\n"
+                f"📰 【最新舆情头条】:\n{req.news_context}\n\n"
+                f"请结合以上股票盘口及新闻背景，专业且深刻地解答用户的追问问题：\n"
+                f"👉 **{req.question}**"
+            )
+            messages.append({'role': 'user', 'content': chat_prompt})
+        else:
+            messages.append({'role': 'user', 'content': base_report_prompt})
+
+    async def event_generator():
+        stop_event = asyncio.Event()
         async for chunk in provider.generate_stream(messages, stop_event):
             # 以标准的 Server-Sent Events 格式吐出文本流
             yield f"data: {chunk}\n\n"
