@@ -76,90 +76,54 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
     """
     headers = {
         "User-Agent": "Mozilla/5.0",
-        "Referer": "https://finance.sina.com.cn"
+        "Referer": "https://www.eastmoney.com"
     }
-    
-    # 抓取个股报价
+
+    def to_secid(code: str) -> str:
+        c = code.lower()
+        if c.startswith("sz"):     return f"0.{c[2:]}"
+        elif c.startswith("sh"):   return f"1.{c[2:]}"
+        elif c.startswith("hk"):   return f"116.{c[2:]}"
+        elif c.startswith("gb_"):  return f"105.{c[3:].upper()}"
+        return f"0.{c}"
+
+    # 抓取个股报价（东方财富接口，云服务器无封禁）
     quote_data = {}
-    quote_url = f"https://hq.sinajs.cn/list={code}"
+    secid = to_secid(code)
+    quote_url = (
+        f"https://push2.eastmoney.com/api/qt/stock/get"
+        f"?secid={secid}&fields=f43,f57,f58,f169,f170,f46,f44,f45,f60,f47,f48,f86"
+        f"&ut=fa5fd1943c7b386f172d6893dbfba10b&fltt=2&invt=2"
+    )
     try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(quote_url, headers=headers)
-            content = resp.content.decode('gbk', errors='ignore')
-            match = re.search(r'"([^"]+)"', content)
-            if match:
-                data = match.group(1).split(',')
-                if code.startswith(("sh", "sz")) and len(data) >= 30:
-                    # 1. 经典 A 股解析器
-                    open_p = float(data[1])
-                    prev_close = float(data[2])
-                    current = float(data[3])
-                    change_val = current - prev_close if current > 0 else 0
-                    change_pct = (change_val / prev_close) * 100 if prev_close > 0 else 0
-                    quote_data = {
-                        "name": data[0],
-                        "code": code.upper(),
-                        "open": f"{open_p:.2f}",
-                        "prev_close": f"{prev_close:.2f}",
-                        "current": f"{current:.2f}",
-                        "high": f"{float(data[4]):.2f}",
-                        "low": f"{float(data[5]):.2f}",
-                        "volume": f"{int(float(data[8])/100):,}",
-                        "turnover": f"{float(data[9])/10000:.2f}",
-                        "change_val": f"{change_val:+.2f}",
-                        "change_pct": f"{change_pct:+.2f}%",
-                        "is_up": change_val >= 0,
-                        "time": f"{data[30]} {data[31]}"
-                    }
-                elif code.startswith("hk") and len(data) >= 15:
-                    # 2. 跨国港股解析器
-                    open_p = float(data[2])
-                    prev_close = float(data[3])
-                    current = float(data[6])
-                    change_val = float(data[7])
-                    change_pct = float(data[8])
-                    quote_data = {
-                        "name": data[1],
-                        "code": code.upper(),
-                        "open": f"{open_p:.2f}",
-                        "prev_close": f"{prev_close:.2f}",
-                        "current": f"{current:.2f}",
-                        "high": f"{float(data[4]):.2f}",
-                        "low": f"{float(data[5]):.2f}",
-                        "volume": f"{int(float(data[12])/100):,}",
-                        "turnover": f"{float(data[11])/10000:.2f}",
-                        "change_val": f"{change_val:+.2f}",
-                        "change_pct": f"{change_pct:+.2f}%",
-                        "is_up": change_val >= 0,
-                        "time": f"{data[17]} {data[18]}"
-                    }
-                elif code.startswith("gb_") and len(data) >= 27:
-                    # 3. 跨国美股解析器
-                    current = float(data[1])
-                    change_pct = float(data[2])
-                    open_p = float(data[5])
-                    high_p = float(data[6])
-                    low_p = float(data[7])
-                    volume = float(data[10])
-                    prev_close = float(data[26])
-                    change_val = current - prev_close
-                    quote_data = {
-                        "name": data[0],
-                        "code": code.upper(),
-                        "open": f"{open_p:.2f}",
-                        "prev_close": f"{prev_close:.2f}",
-                        "current": f"{current:.2f}",
-                        "high": f"{high_p:.2f}",
-                        "low": f"{low_p:.2f}",
-                        "volume": f"{int(volume):,}",
-                        "turnover": "暂无",
-                        "change_val": f"{change_val:+.2f}",
-                        "change_pct": f"{change_pct:+.2f}%",
-                        "is_up": change_val >= 0,
-                        "time": data[3]
-                    }
+            d = resp.json().get("data") or {}
+            if d and d.get("f43"):
+                import datetime
+                ts = d.get("f86", 0)
+                time_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "N/A"
+                current    = float(d["f43"])
+                change_val = float(d.get("f169", 0))
+                change_pct = float(d.get("f170", 0))
+                quote_data = {
+                    "name":       d.get("f58", "未知"),
+                    "code":       code.upper(),
+                    "open":       f"{float(d.get('f46', 0)):.2f}",
+                    "prev_close": f"{float(d.get('f60', 0)):.2f}",
+                    "current":    f"{current:.2f}",
+                    "high":       f"{float(d.get('f44', 0)):.2f}",
+                    "low":        f"{float(d.get('f45', 0)):.2f}",
+                    "volume":     f"{int(d.get('f47', 0)):,}",
+                    "turnover":   f"{float(d.get('f48', 0))/10000:.2f}",
+                    "change_val": f"{change_val:+.2f}",
+                    "change_pct": f"{change_pct:+.2f}%",
+                    "is_up":      change_val >= 0,
+                    "time":       time_str
+                }
     except Exception as e:
         logger.error(f"实时行情接口异常: {e}")
+
  
     # 极佳的兜底保障机制，防范前端 JSON.stringify 抹除 undefined 从而导致 POST analyze 422 报错
     if not quote_data or "error" in quote_data:
