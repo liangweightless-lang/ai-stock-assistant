@@ -74,52 +74,73 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
     """
     一键抓取个股报盘与关联的 5 条新闻 (支持 A股、港股、美股多态解析)
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://www.eastmoney.com"
-    }
-
-    def to_secid(code: str) -> str:
-        c = code.lower()
-        if c.startswith("sz"):     return f"0.{c[2:]}"
-        elif c.startswith("sh"):   return f"1.{c[2:]}"
-        elif c.startswith("hk"):   return f"116.{c[2:]}"
-        elif c.startswith("gb_"):  return f"105.{c[3:].upper()}"
-        return f"0.{c}"
-
-    # 抓取个股报价（东方财富接口，云服务器无封禁）
+    # 抓取个股报价（腾讯财经接口，稳定可靠）
+    import asyncio, urllib.request
     quote_data = {}
-    secid = to_secid(code)
-    quote_url = (
-        f"https://push2.eastmoney.com/api/qt/stock/get"
-        f"?secid={secid}&fields=f43,f57,f58,f169,f170,f46,f44,f45,f60,f47,f48,f86"
-        f"&ut=fa5fd1943c7b386f172d6893dbfba10b&fltt=2&invt=2"
-    )
+
+    def _to_qq_code(code: str) -> str:
+        """将 sz/sh/hk 代码转为腾讯财经格式"""
+        c = code.lower()
+        if c.startswith(("sz", "sh", "hk")):
+            return c
+        return f"sz{c}"
+
+    def _fetch_quote_sync(code: str):
+        qq_code = _to_qq_code(code)
+        url = f"https://qt.gtimg.cn/q={qq_code}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://gu.qq.com"
+        })
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return r.read().decode("gbk", errors="ignore")
+
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(quote_url, headers=headers)
-            d = resp.json().get("data") or {}
-            if d and d.get("f43"):
+        raw = await asyncio.to_thread(_fetch_quote_sync, code)
+        # 格式: v_sz002594="51~比亚迪~002594~93.36~96.00~95.30~..."
+        import re as _re
+        m = _re.search(r'"([^"]+)"', raw)
+        if m:
+            parts = m.group(1).split("~")
+            # 字段: [1]名 [2]代码 [3]现价 [4]昨收 [5]今开 [6]成交量(手) [30]涨跌 [31]涨跌% [32]最高 [33]最低
+            if len(parts) > 33:
+                name      = parts[1]
+                current   = float(parts[3]) if parts[3] else 0
+                prev_close= float(parts[4]) if parts[4] else 0
+                open_p    = float(parts[5]) if parts[5] else 0
+                volume    = int(parts[6])   if parts[6] else 0
+                change_val= float(parts[31]) if parts[31] else 0
+                change_pct= float(parts[32]) if parts[32] else 0
+                high_p    = float(parts[33]) if parts[33] else 0
+                low_p     = float(parts[34]) if parts[34] else 0
                 import datetime
-                ts = d.get("f86", 0)
-                time_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "N/A"
-                current    = float(d["f43"])
-                change_val = float(d.get("f169", 0))
-                change_pct = float(d.get("f170", 0))
+                time_str  = parts[30]  # 格式: 20260520161457
+                try:
+                    time_str = datetime.datetime.strptime(time_str, "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    pass
+                d = {"ok": True, "name": name, "current": current, "prev_close": prev_close,
+                     "open": open_p, "volume": volume, "change_val": change_val,
+                     "change_pct": change_pct, "high": high_p, "low": low_p, "time": time_str}
+            else:
+                d = {}
+        else:
+            d = {}
+            if d and d.get("ok"):
                 quote_data = {
-                    "name":       d.get("f58", "未知"),
+                    "name":       d["name"],
                     "code":       code.upper(),
-                    "open":       f"{float(d.get('f46', 0)):.2f}",
-                    "prev_close": f"{float(d.get('f60', 0)):.2f}",
-                    "current":    f"{current:.2f}",
-                    "high":       f"{float(d.get('f44', 0)):.2f}",
-                    "low":        f"{float(d.get('f45', 0)):.2f}",
-                    "volume":     f"{int(d.get('f47', 0)):,}",
-                    "turnover":   f"{float(d.get('f48', 0))/10000:.2f}",
-                    "change_val": f"{change_val:+.2f}",
-                    "change_pct": f"{change_pct:+.2f}%",
-                    "is_up":      change_val >= 0,
-                    "time":       time_str
+                    "open":       f"{d['open']:.2f}",
+                    "prev_close": f"{d['prev_close']:.2f}",
+                    "current":    f"{d['current']:.2f}",
+                    "high":       f"{d['high']:.2f}",
+                    "low":        f"{d['low']:.2f}",
+                    "volume":     f"{d['volume']:,}",
+                    "turnover":   "N/A",
+                    "change_val": f"{d['change_val']:+.2f}",
+                    "change_pct": f"{d['change_pct']:+.2f}%",
+                    "is_up":      d["change_val"] >= 0,
+                    "time":       d["time"]
                 }
     except Exception as e:
         logger.error(f"实时行情接口异常: {e}")
