@@ -126,22 +126,23 @@ async def get_stock_data(code: str = Query(..., regex=r"^[a-zA-Z0-9_]+$")):
                 d = {}
         else:
             d = {}
-            if d and d.get("ok"):
-                quote_data = {
-                    "name":       d["name"],
-                    "code":       code.upper(),
-                    "open":       f"{d['open']:.2f}",
-                    "prev_close": f"{d['prev_close']:.2f}",
-                    "current":    f"{d['current']:.2f}",
-                    "high":       f"{d['high']:.2f}",
-                    "low":        f"{d['low']:.2f}",
-                    "volume":     f"{d['volume']:,}",
-                    "turnover":   "N/A",
-                    "change_val": f"{d['change_val']:+.2f}",
-                    "change_pct": f"{d['change_pct']:+.2f}%",
-                    "is_up":      d["change_val"] >= 0,
-                    "time":       d["time"]
-                }
+
+        if d and d.get("ok"):
+            quote_data = {
+                "name":       d["name"],
+                "code":       code.upper(),
+                "open":       f"{d['open']:.2f}",
+                "prev_close": f"{d['prev_close']:.2f}",
+                "current":    f"{d['current']:.2f}",
+                "high":       f"{d['high']:.2f}",
+                "low":        f"{d['low']:.2f}",
+                "volume":     f"{d['volume']:,}",
+                "turnover":   "N/A",
+                "change_val": f"{d['change_val']:+.2f}",
+                "change_pct": f"{d['change_pct']:+.2f}%",
+                "is_up":      d["change_val"] >= 0,
+                "time":       d["time"]
+            }
     except Exception as e:
         logger.error(f"实时行情接口异常: {e}")
 
