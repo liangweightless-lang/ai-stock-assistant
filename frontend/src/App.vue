@@ -1470,4 +1470,158 @@ html, body {
   50% { top: 100%; }
   100% { top: -3px; }
 }
+
+/* ==========================================
+   📱 MOBILE RESPONSIVE STYLES
+   ========================================== */
+@media (max-width: 768px) {
+
+  /* 全局容器缩紧 */
+  .app-container {
+    padding: 1.2rem 1rem;
+    gap: 1.2rem;
+  }
+
+  /* 头部：Logo 与状态竖排 */
+  .main-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding-bottom: 1.2rem;
+  }
+  .logo-area h1 {
+    font-size: 1.3rem;
+  }
+  .logo-icon {
+    font-size: 1.4rem;
+  }
+  .status-text {
+    font-size: 0.75rem;
+  }
+
+  /* 搜索框 */
+  .search-input-container {
+    padding: 0.6rem 1rem;
+  }
+  .search-input-container input {
+    font-size: 0.95rem;
+  }
+
+  /* 欢迎卡片 */
+  .welcome-card {
+    padding: 2.5rem 1.5rem;
+  }
+  .welcome-icon {
+    font-size: 3rem;
+  }
+  .welcome-title {
+    font-size: 1.5rem;
+  }
+  .welcome-subtitle {
+    font-size: 0.95rem;
+  }
+  .quick-picks {
+    gap: 0.5rem;
+  }
+  .quick-pick-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  /* 仪表盘：两列改单列，顺序：行情 → 研报 → 新闻 */
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    gap: 1rem;
+  }
+  .quote-card  { grid-column: 1; grid-row: auto; }
+  .report-card { grid-column: 1; grid-row: auto; }
+  .news-card   { grid-column: 1; grid-row: auto; }
+
+  /* 卡片内边距缩小 */
+  .glass-card {
+    padding: 1.2rem;
+    border-radius: 16px;
+  }
+  .card-header {
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .card-title {
+    font-size: 1rem;
+  }
+
+  /* 行情数据网格：2 列 */
+  .quote-details-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+  .quote-current-price {
+    font-size: 2rem;
+  }
+
+  /* 研报对话区高度缩减 */
+  .report-console.chat-mode {
+    height: 320px;
+  }
+
+  /* 追问输入框 */
+  .chat-input-panel {
+    flex-wrap: nowrap;
+    padding: 0.5rem 0.7rem 0.5rem 1rem;
+    gap: 0.6rem;
+    border-radius: 14px;
+  }
+  .chat-input-panel input {
+    font-size: 0.9rem;
+    min-width: 0;
+  }
+  .send-btn {
+    padding: 0.55rem 0.9rem;
+    font-size: 0.82rem;
+    border-radius: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* 气泡内容最大宽度放大 */
+  .chat-bubble-content {
+    max-width: 90%;
+  }
+  .bubble-text-body {
+    font-size: 0.92rem;
+    padding: 0.9rem 1rem;
+  }
+
+  /* 新闻列表 */
+  .news-list {
+    max-height: 260px;
+  }
+  .news-item {
+    padding: 0.8rem 1rem;
+  }
+  .news-item-title {
+    font-size: 0.92rem;
+  }
+
+  /* 重新生成按钮 */
+  .glow-btn {
+    font-size: 0.82rem;
+    padding: 0.5rem 1rem;
+  }
+}
+
+/* 超小屏（iPhone SE 等 375px） */
+@media (max-width: 400px) {
+  .app-container {
+    padding: 1rem 0.8rem;
+  }
+  .quote-details-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .chat-bubble-content {
+    max-width: 95%;
+  }
+}
+
 </style>
